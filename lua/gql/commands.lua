@@ -2,11 +2,13 @@ local job = require("gql.job")
 local async = require("gql.async")
 
 local json = vim.json
-local uv = vim.loop
 
-local M = {}
+local M = {
+  curl = {},
+  jq = {},
+}
 
-M.post = async.void(function(url, body)
+M.curl.post = async.void(function(url, body)
   local obj = {
     cmd = "curl",
     args = {
@@ -25,7 +27,7 @@ M.post = async.void(function(url, body)
   return stdout
 end)
 
-M.format = async.void(function(s)
+M.jq.format = async.void(function(s)
   local obj = {
     cmd = "jq",
     args = { "." },
@@ -33,19 +35,6 @@ M.format = async.void(function(s)
   }
   local exit, stdout, stderr = job.start(obj)
   return stdout
-end)
-
-local test = async.void(function()
-  local body = { query = [[
-    query {
-      countries {
-        name
-      }
-    }
-    ]] }
-  local url = "https://countries.trevorblades.com"
-  local out = M.post(url, body)
-  local res = M.format(out)
 end)
 
 return M
