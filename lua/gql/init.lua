@@ -1,5 +1,6 @@
 local async = require("gql.async")
 local commands = require("gql.commands")
+local ts = require("nvim-treesitter.ts_utils")
 
 local curl = commands.curl
 local jq = commands.jq
@@ -10,6 +11,9 @@ local json = vim.json
 local bufname = "grapqhl://results"
 
 local M = {}
+
+local ui = {}
+ui.select = async.wrap(vim.ui.select, 3)
 
 local function get_current_buffer()
   local lines = api.nvim_buf_get_lines(0, 0, -1, false)
@@ -41,13 +45,10 @@ local function show_result(result)
   api.nvim_set_current_win(input_win)
 end
 
-local run = async.void(function(input)
-  local body = {
-    query = input,
-  }
-
+local run = async.void(function(body)
   local out = curl.post(M.url, body)
   local res = jq.format(out)
+  async.scheduler()
   return res
 end)
 
@@ -60,7 +61,7 @@ api.nvim_create_user_command(
   async.void(function()
     M.connect("https://countries.trevorblades.com")
     local contents = get_current_buffer()
-    local result = run(contents)
+    local result = run({ query = contents })
     show_result(result)
   end),
   {}
@@ -171,15 +172,40 @@ fragment TypeRef on __Type {
   ]]
     local result = run(contents)
     local out = json.decode(result)
-    -- print("ceva")
-    -- print(out.error)
-    -- if out.error or out.data == vim.NIL or #out.data == 0 then
-    --   print("error getting schema")
-    -- end
-    -- vim.pretty_print(out.data["__schema"].types)
-    -- show_result(result)
   end),
   {}
 )
+
+local function get_root(bufnr)
+  local parser = vim.treesitter.get_parser(bufnr, "graphql", {})
+  local tree = parser:parse()[1]
+  return tree:root()
+end
+
+M.test = async.void(function()
+  M.connect("https://countries.trevorblades.com")
+  local all_queries = vim.treesitter.parse_query(
+    "graphql",
+    [[
+  (operation_definition
+  (name) @name
+  )
+  ]]
+  )
+  -- local win = api.nvim_get_current_win()
+  local bufnr = api.nvim_get_current_buf()
+  local root = get_root(bufnr)
+
+  local query_names = {}
+  for id, node in all_queries:iter_captures(root, bufnr, 0, -1) do
+    table.insert(query_names, vim.treesitter.get_node_text(node, bufnr))
+  end
+
+  local contents = get_current_buffer()
+  local name = ui.select(query_names, { prompt = "Choose query" })
+  local result = run({ query = contents, operationName = name })
+  show_result(result)
+
+end)
 
 return M
